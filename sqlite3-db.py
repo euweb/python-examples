@@ -4,66 +4,95 @@ import time
 import sqlite3
 from datetime import datetime
 
-#db configuration
-DB = "gasmeter.db"
+counter = None
 
-# current counter value of gas meter
-counter = 0.0
+def main():    
 
-# create db if needed
-conn = sqlite3.connect(DB)
-conn.execute("""
-CREATE TABLE IF NOT EXISTS gas_meter(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  date DATETIME NOT NULL,
-  value REAL NOT NULL,
-  special INTEGER
-);
-""")
+    proc = DBProcessor()
+    proc.setup()
 
-conn.commit()
-conn.close()
+    proc.print_db()
 
-# new connecton
-conn = sqlite3.connect(DB)
-conn.isolation_level = None # -> autocommit
+    counter = proc.get_current_max()
+    if counter is None:
+        counter = 0.0
 
-cursor = conn.cursor()
+    counter += 0.01
 
-# show contents of the TABLE
-cursor.execute("select * from gas_meter;")
-result = cursor.fetchall()
-for r in result:
-    print(r)
+    proc.update(counter,format(str(datetime.now())),1)
+    done = False
+    while not done:
 
-# preselect counter value
-current = cursor.execute("SELECT value FROM gas_meter ORDER BY id DESC LIMIT 1;")
-cur_counter = current.fetchone()
+        try:
 
-if cur_counter is not None:
-    print "loading current counter value from database"
-    counter = float(cur_counter[0])
-print "counter:",counter
+            counter += 0.01
+            proc.update(counter,format(str(datetime.now())),0)
+            time.sleep(1)
 
-sql_statement = "insert into gas_meter (id, date, value, special) values (null,?,?,?)"
+        except KeyboardInterrupt:
+            done = True
 
-# insert the first row
-counter += 0.01
-cursor.execute(sql_statement,(format(str(datetime.now())),counter,1))
-print "insert first row for counter: ",str(counter)
 
-done = False
-while not done:
+class DBProcessor:        
 
-    try:
+    #db configuration
+    DB = "gasmeter.db"
 
-        counter += 0.01
-        cursor.execute(sql_statement,(format(str(datetime.now())),counter,''))
-        print "insert row for counter: ",str(counter)
-        time.sleep(1)
+    _conn = None
 
-    except KeyboardInterrupt:
+    def __init__(self):
+        pass
+
+    def __del__(self):
+        if self._conn is not None:
+            self._conn.close()
+
+    def setup(self):
+        # create db if needed
+        self._conn = sqlite3.connect(self.DB)
+        self._conn.isolation_level = None # -> autocommit
+        self._conn.execute("""
+        CREATE TABLE IF NOT EXISTS gas_meter(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date DATETIME NOT NULL,
+          value REAL NOT NULL,
+          type INTEGER
+        );
+        """)
+
+    def get_current_max(self):
+     
+        cursor = self._conn.cursor()
+
+        # preselect counter value
+        current = cursor.execute("SELECT value FROM gas_meter ORDER BY id DESC LIMIT 1;")
+        cur_counter = current.fetchone()
+        counter = None
+        if cur_counter is not None:
+            print "loading current counter value from database: ",cur_counter[0]
+            counter = float(cur_counter[0])
+
         cursor.close()
-        conn.commit()
-        conn.close()
-        done = True
+        return counter
+
+
+    def update(self, counter, time, type):
+        print "counter: ",counter,", type: ",type
+        cursor = self._conn.cursor()
+        cursor.execute("insert into gas_meter (id, date, value, type) values (null,?,?,?)",(time,counter,type))
+        cursor.close()
+
+
+    def print_db(self):
+        cursor = self._conn.cursor()
+        # show contents of the TABLE
+        cursor.execute("select * from gas_meter;")
+        result = cursor.fetchall()
+        for r in result:
+            print(r)
+        cursor.close()
+
+if __name__ == "__main__":
+    main()
+
+
